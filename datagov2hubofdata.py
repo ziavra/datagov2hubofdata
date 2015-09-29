@@ -39,7 +39,7 @@ class DataTransfer(object):
         self.datasets = []
         self.registry = {}
 
-    def get_dataset_list(self, load_registry=False, topic='', organization=''):
+    def get_dataset_list(self, topic='', organization=''):
         query = {}
         if topic:
             query.update({'topic': topic})
@@ -52,26 +52,6 @@ class DataTransfer(object):
             return False
         self.datasets = json.loads(data)
         self.logger.info("Found %d datasets from API" % len(self.datasets))
-        if load_registry:
-            # DEBUG
-            cachefname = 'registry.csv'
-            if os.path.exists(cachefname) and (time.time()-os.stat(cachefname).st_mtime) < 60*30*3:  # 90 mins
-                with open(cachefname, 'r') as f:
-                    data = f.read()
-            else:
-                data = self.dg.registry()
-                with open(cachefname, 'w+') as f:
-                    f.write(data)
-            if not data:
-                self.logger.error("Can not get registry.")
-                return False
-
-            f = StringIO.StringIO(data)
-            for row in list(UnicodeReader(f, delimiter=';', quotechar='"')):
-                if row[0] == u"Название набора":
-                    continue
-                self.registry[row[1]] = row[0:1] + row[2:]
-            self.logger.info("Found %d datasets from registry" % len(self.registry))
 
     def process_datasets(self):
         for i in xrange(len(self.datasets)-1):
@@ -107,7 +87,7 @@ class DataTransfer(object):
 
 if __name__ == '__main__':
     dt = DataTransfer()
-    dt.get_dataset_list(True, topic='cartography')
+    dt.get_dataset_list(topic='cartography')
     dt.process_datasets()
 
 #    dg = DataGovApi(DATAGOV_API_KEY)

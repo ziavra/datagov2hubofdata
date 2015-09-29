@@ -5,6 +5,10 @@ import httplib
 import logging
 import re
 import json
+import os
+import time
+import StringIO
+from csvUnicode import UnicodeReader
 
 __author__ = 'ziavra'
 
@@ -12,6 +16,7 @@ __author__ = 'ziavra'
 class DataGovApi(object):
     api_domain = 'data.gov.ru'
     base_url = 'http://'+api_domain+'/api'
+    __registry_cachefname = 'registry.csv'
 
     def __init__(self, access_token, _format='json'):
         """
@@ -19,7 +24,8 @@ class DataGovApi(object):
         :param str access_token:
         :param str _format: 'json' | 'xml'
         """
-        logging.info('test info')
+        # logging.info('test info')
+        logging.getLogger(__name__).addHandler(logging.NullHandler())
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
 
@@ -28,6 +34,7 @@ class DataGovApi(object):
         self.logger.info('creating an instance of DataGovApi')
         self.access_token = access_token
         self.format = _format
+        self.__registry = {}
 
     def __get_web_page(self, url, ref='', query=None):
         user_agent = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0'
@@ -235,7 +242,24 @@ class DataGovApi(object):
         :rtype : string
         :return:
         """
-        data = self.__get_web_page('http://'+self.api_domain+'/opendata/export/csv', 'http://'+self.api_domain+'/opendata')
+
+        if os.path.exists(self.__registry_cachefname) and (time.time()-os.stat(self.__registry_cachefname).st_mtime) < 60*30*3:  # 90 mins
+            with open(self.__registry_cachefname, 'r') as f:
+                data = f.read()
+        else:
+            data = self.__get_web_page('http://'+self.api_domain+'/opendata/export/csv', 'http://'+self.api_domain+'/opendata')
+            with open(self.__registry_cachefname, 'w+') as f:
+                f.write(data)
+        if not data:
+            self.logger.error("Can not get registry.")
+            return False
+
+        f = StringIO.StringIO(data)
+        for row in list(UnicodeReader(f, delimiter=';', quotechar='"')):
+            if row[0] == u"Название набора":
+                continue
+            self.__registry[row[1]] = row[0:1] + row[2:]
+
         return data
 
     def organization_details(self, inn='', _format=''):
@@ -302,7 +326,7 @@ class DataGovApi(object):
 
     def dataset_passport(self, ds_id, _format=''):
         """
-        Возвращает паспорт набора данных. Не входит в официальное API.
+        Возвращает паспорт набора данных, работает через реестр. Не входит в официальное API.
 
         :param ds_id:
         :param _format:
@@ -310,8 +334,42 @@ class DataGovApi(object):
         """
         if not ds_id:
             return False
-        # TODO добавить получение данных со страницы набора или из реестра
+        # TODO добавить получение информации со страницы набора
+        if not self.__registry:
+            self.registry()
 
+        data = self.__registry[ds_id]
+        if not data:
+            return False
+
+        fmt_result = None
+        tmp_format = _format if _format else self.format
+        if tmp_format == 'json':
+            json_result = {"id": ds_id,
+                           "title": data[0],
+                           "description": data[1],
+                           "creator": data[2],
+                           "publisher": data[3],
+                           "publisher_phone": data[4],
+                           "publisher_email": data[5],
+                           "format": data[6],
+                           "valid": data[7],
+                           "created": data[8],
+                           "modified": data[9],
+                           "last_modification": data[10],
+                           "topic": data[11],
+                           "organization-type": data[12],
+                           "subject": data[13],
+                           "source_url": data[14],
+                           "structure_url": data[15]}
+            fmt_result = json.dumps(json_result, indent=4)
+        elif tmp_format == 'xml':
+            # TODO добавить генерацию XML
+            pass
+        else:
+            return False
+
+        return fmt_result
 
 
 if __name__ == "__main__":
@@ -332,5 +390,7 @@ if __name__ == "__main__":
     # print dg.topic_list()
     # print dg.topic("Government")
     # print dg.dataset_list_by_topic("Government")
+    # dg.registry()
     # print dg.organization_details('3444051965')
+    print dg.dataset_passport('7710349494-mfclist')
     pass
