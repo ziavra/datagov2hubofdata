@@ -99,7 +99,6 @@ class DataTransfer(object):
                 #         print e
 
                 exit()
-
             # results= self.ckan.action.package_search(q='"'+item['title']+'"')
             # if results['count']>0:
             #     for  res in results['results']:
