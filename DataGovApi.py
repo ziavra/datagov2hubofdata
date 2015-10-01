@@ -8,7 +8,7 @@ import json
 import os
 import time
 import StringIO
-from csvUnicode import UnicodeReader
+import csvUnicode
 
 __author__ = 'ziavra'
 
@@ -17,6 +17,7 @@ class DataGovApi(object):
     api_domain = 'data.gov.ru'
     base_url = 'http://'+api_domain+'/api'
     __registry_cachefname = 'registry.csv'
+    __duplicates_fname = 'duplicated_id.csv'
 
     def __init__(self, access_token, _format='json'):
         """
@@ -34,7 +35,9 @@ class DataGovApi(object):
         self.logger.info('creating an instance of DataGovApi')
         self.access_token = access_token
         self.format = _format
+        self.__duplicates = []
         self.__registry = {}
+        self.registry()
 
     def __get_web_page(self, url, ref='', query=None):
         user_agent = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0'
@@ -255,12 +258,31 @@ class DataGovApi(object):
             return False
 
         f = StringIO.StringIO(data)
-        for row in list(UnicodeReader(f, delimiter=';', quotechar='"')):
-            if row[0] == u"Название набора":
-                continue
-            self.__registry[row[1]] = row[0:1] + row[2:]
+        reestr_list = list(csvUnicode.UnicodeReader(f, delimiter=';', quotechar='"'))
+
+        # seen = []
+        # for row in reestr_list:
+        #     if row[0] == u"Название набора":
+        #         continue
+        #     if not row[1] in seen:
+        #         self.__registry[row[1]] = row[0:1] + row[2:]
+        #         seen.append(row[1])
+
+        # фильтруем дубликаты по ID - row[1]
+        ids = [x[1] for x in reestr_list]
+        duplicates = [x for x in reestr_list if ids.count(x[1]) > 1 or x[0] == u"Название набора"]
+        self.__duplicates = [x[1] for x in duplicates if x[0] != u"Название набора"]
+        self.__registry = {x[1]: x[0:1] + x[2:] for x in reestr_list if ids.count(x[1])<2 and x[0] != u"Название набора"}
+        with open(self.__duplicates_fname, 'wb') as csvfile:
+            csvwriter = csvUnicode.UnicodeWriter(csvfile, delimiter=';', quotechar='"')
+            for row in duplicates:
+                csvwriter.writerow(map(unicode, row))
+        self.logger.info("Found %d duplicates. Check %s" % (len(duplicates), self.__duplicates_fname))
 
         return data
+
+    def is_duplicated(self, _id):
+        return _id in self.__duplicates
 
     def organization_details(self, inn='', _format=''):
         """
@@ -379,14 +401,15 @@ if __name__ == "__main__":
     # json_data = json.loads(data)
     # for item in json_data:
     #     print item['identifier'], item['title'], item['organization'], item['organization_name'], item['topic']
-    # print dg.dataset('7710349494-mfclist')
-    # print dg.dataset_version_list('7710349494-mfclist')
-    # print dg.dataset_version('7710349494-mfclist', '20131201T134500')
-    # print dg.dataset_version_structure('7710349494-mfclist', '20131201T134500')
+    # print dg.dataset('1380533740-01-DATA_MOS_RU_507')
+    # print dg.dataset_version_list('1380533740-01-DATA_MOS_RU_507')
+    # print dg.dataset_version('1380533740-01-DATA_MOS_RU_507', '20140328T122916')
+    # print dg.dataset_version_structure('1380533740-01-DATA_MOS_RU_507', '20140328T122916')
     # print dg.dataset_version_content('7710349494-mfclist', '20131201T134500', search='Клейменычев')
     # print dg.organization_list()
     # print dg.organization('7705884873')
-    # print dg.dataset_list_by_organization('7705884873', topic="Government")
+    # print dg.dataset_list_by_organization('7735017860', topic="Government")
+    # print dg.dataset_list_by_organization('7735017860')
     # print dg.topic_list()
     # print dg.topic("Government")
     # print dg.dataset_list_by_topic("Government")
