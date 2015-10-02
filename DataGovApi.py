@@ -246,13 +246,17 @@ class DataGovApi(object):
         :return:
         """
 
-        if os.path.exists(self.__registry_cachefname) and (time.time()-os.stat(self.__registry_cachefname).st_mtime) < 60*30*3:  # 90 mins
+        if os.path.exists(self.__registry_cachefname) and (time.time()-os.stat(self.__registry_cachefname).st_mtime) < 60*90:  # 90 mins
             with open(self.__registry_cachefname, 'r') as f:
                 data = f.read()
         else:
-            data = self.__get_web_page('http://'+self.api_domain+'/opendata/export/csv', 'http://'+self.api_domain+'/opendata')
-            with open(self.__registry_cachefname, 'w+') as f:
-                f.write(data)
+            try:
+                data = self.__get_web_page('http://'+self.api_domain+'/opendata/export/csv', 'http://'+self.api_domain+'/opendata')
+                with open(self.__registry_cachefname, 'w+') as f:
+                    f.write(data)
+            except IOError, e:
+                self.logger.error("Failed to save registry %s. Reason=%s" % (self.__registry_cachefname, e.strerror))
+                exit(1)
         if not data:
             self.logger.error("Can not get registry.")
             return False
@@ -303,6 +307,9 @@ class DataGovApi(object):
         result = unicode(result, 'unicode-escape')
         result = result.replace('\/', '/')
 
+        with open('tmp.html', 'w+') as f:
+            f.write(result.encode('utf-8'))
+
         p = re.compile(u'\s+<tr class="odd views-row-first views-row-last">\n'
                        u'\s+<td class="views-field views-field-counter" >\n'
                        u'\s+1          </td>\n'
@@ -315,7 +322,7 @@ class DataGovApi(object):
                        u'\s+<td class="views-field views-field-field-site-url" >\n'
                        u'\s+<a href="(.*)" rel="nofollow" target="_blank">Сайт организации</a>          </td>\n'
                        u'\s+<td class="views-field views-field-field-org-site-od-section" >\n'
-                       u'\s+<a href="(.*)">Ссылка на раздел открытых данных</a>          </td>\n'
+                       u'\s+<a href="([^"]*).*?">((Ссылка на раздел открытых данных)|(Портала ОД организации))</a>          </td>\n'
                        u'\s+<td class="views-field views-field-created views-align-center" >\n'
                        u'\s+(.*)          </td>\n'
                        u'\s+<td class="views-field views-field-nid views-align-center" >\n'
@@ -335,8 +342,8 @@ class DataGovApi(object):
                            "id": matches.group(4),
                            "site-url": matches.group(5),
                            "org-site-od-section": matches.group(6),
-                           "created": matches.group(7),
-                           "dataset-count": int(matches.group(8))}
+                           "created": matches.group(10),
+                           "dataset-count": int(matches.group(11))}
             fmt_result = json.dumps(json_result, indent=4)
         elif tmp_format == 'xml':
             # TODO добавить генерацию XML
@@ -414,6 +421,6 @@ if __name__ == "__main__":
     # print dg.topic("Government")
     # print dg.dataset_list_by_topic("Government")
     # dg.registry()
-    # print dg.organization_details('3444051965')
+    print dg.organization_details('7735017860')
     # print dg.dataset_passport('7710349494-mfclist')
     pass
