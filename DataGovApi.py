@@ -9,6 +9,7 @@ import os
 import time
 import StringIO
 import csvUnicode
+import HTMLParser
 
 __author__ = 'ziavra'
 
@@ -305,6 +306,8 @@ class DataGovApi(object):
                  'view_display_id': 'organizations_list'}
         result = self.__get_web_page(base_url+'/views/ajax', base_url+'/organizations', query)
         result = unicode(result, 'unicode-escape')
+        html_parser = HTMLParser.HTMLParser()
+        result = html_parser.unescape(result)
         result = result.replace('\/', '/')
 
         with open('tmp.html', 'w+') as f:
@@ -322,7 +325,7 @@ class DataGovApi(object):
                        u'\s+<td class="views-field views-field-field-site-url" >\n'
                        u'\s+<a href="(.*)" rel="nofollow" target="_blank">Сайт организации</a>          </td>\n'
                        u'\s+<td class="views-field views-field-field-org-site-od-section" >\n'
-                       u'\s+<a href="([^"]*).*?">((Ссылка на раздел открытых данных)|(Портала ОД организации))</a>          </td>\n'
+                       u'\s+(<a href="([^"]*).*?">((Ссылка на раздел открытых данных)|(Портала ОД организации))</a>          )?</td>\n'
                        u'\s+<td class="views-field views-field-created views-align-center" >\n'
                        u'\s+(.*)          </td>\n'
                        u'\s+<td class="views-field views-field-nid views-align-center" >\n'
@@ -341,9 +344,9 @@ class DataGovApi(object):
                            "organization-type": matches.group(3),
                            "id": matches.group(4),
                            "site-url": matches.group(5),
-                           "org-site-od-section": matches.group(6),
-                           "created": matches.group(10),
-                           "dataset-count": int(matches.group(11))}
+                           "org-site-od-section": matches.group(7),
+                           "created": matches.group(11),
+                           "dataset-count": int(matches.group(12))}
             fmt_result = json.dumps(json_result, indent=4)
         elif tmp_format == 'xml':
             # TODO добавить генерацию XML
@@ -414,13 +417,13 @@ if __name__ == "__main__":
     # print dg.dataset_version_structure('1380533740-01-DATA_MOS_RU_507', '20140328T122916')
     # print dg.dataset_version_content('7710349494-mfclist', '20131201T134500', search='Клейменычев')
     # print dg.organization_list()
-    # print dg.organization('7705884873')
+    # print dg.organization('3102003133')
     # print dg.dataset_list_by_organization('7735017860', topic="Government")
     # print dg.dataset_list_by_organization('7735017860')
     # print dg.topic_list()
     # print dg.topic("Government")
     # print dg.dataset_list_by_topic("Government")
     # dg.registry()
-    print dg.organization_details('7735017860')
+    print dg.organization_details('3102003133')
     # print dg.dataset_passport('7710349494-mfclist')
     pass

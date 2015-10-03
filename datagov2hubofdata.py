@@ -17,7 +17,7 @@ CKAN_API_KEY = '***REMOVED***'
 
 MAINTAINER = 'Vladimir Chaplits'
 MAINTAINER_EMAIL = 'vladimir.chaplits@gmail.com'
-LICENSE_ID = 'notspecified'# TODO уточнить лицензию
+LICENSE_ID = 'other-open'  # список доступных http://hubofdata.ru/api/3/action/license_list
 
 
 
@@ -30,8 +30,8 @@ class MyPrettyPrinter(pprint.PrettyPrinter):
 
 class DataTransfer(object):
     ckan_url = 'http://hubofdata.ru'
-    ckan_perfix = 'data_gov_ru_'
-    ckan_perfix_short = 'dgr_'
+    ckan_perfix = 'data_gov_ru_'  # только нижний регистр
+    ckan_perfix_short = 'dgr_'  # только нижний регистр
     dataset_dir = 'datasets/'
     ckan_group = 'data-gov-ru'
 
@@ -59,6 +59,14 @@ class DataTransfer(object):
         self.datasets = []
 
     def get_dataset_list(self, topic='', organization=''):
+        """
+        Получение списка наборов данных.
+
+        Доступна фильтрация по теме(topic) и по организации(organization)
+        :param topic:
+        :param organization:
+        :return:
+        """
         query = {}
         if topic:
             query.update({'topic': topic})
@@ -73,28 +81,48 @@ class DataTransfer(object):
         self.logger.info("Found %d datasets from API" % len(self.datasets))
 
     def process_datasets(self):
-        for i in xrange(len(self.datasets)-1):
+        for i in xrange(len(self.datasets)):
             item = self.datasets[i]
             if self.dg.is_duplicated(item['identifier']):
+                self.logger.error("Id is duplicated. id=%s" % item['identifier'])
                 continue
             # MyPrettyPrinter().pprint(item)
             # if item['identifier'] == '3445126170-go':
             #     del self.datasets[i]
+            ckan_package_m_time = datetime.datetime.now()
+            ckan_package_id = (self.ckan_perfix_short+item['identifier']).lower()
             try:
-                ckan_package_id=(self.ckan_perfix_short+item['identifier']).lower()
-                results = self.ckan.action.package_show(id=ckan_package_id)
+                package_info = self.ckan.action.package_show(id=ckan_package_id)
+                ckan_package_m_time = datetime.datetime.strptime(package_info["metadata_modified"], '%Y-%m-%dT%H:%M:%S.%f')
                 status = 0
             except ckanapi.NotFound:
                 status = 404
-            if status != 404:  # Существует
-                pass
-            else:  # Добавляем набор данных
-                try:
+
+            data = self.dg.dataset_passport(item['identifier'])
+            if data:
+                datagov_dataset = json.loads(data)
+                # MyPrettyPrinter().pprint(datagov_dataset)
+            else:
+                self.logger.error("Can't get dataset's passport. id=%s" % item['identifier'])
+                continue
+
+            if datagov_dataset["modified"]:
+                server_m_time = datetime.datetime.strptime(datagov_dataset["modified"], '%d-%m-%Y')
+            elif datagov_dataset["created"]:
+                server_m_time = datetime.datetime.strptime(datagov_dataset["created"], '%d-%m-%Y')
+            else:
+                server_m_time = datetime.datetime.now()
+
+            # Если набора данных не существует или дата модификации старше, чем на сайте-доноре
+            #print ckan_package_m_time, server_m_time
+            if status == 404 or ckan_package_m_time < server_m_time:
+                results = {}
+                try:  # Проверяем организацию
                     results = self.ckan.action.organization_show(id=self.ckan_perfix+item['organization'])
                     # MyPrettyPrinter().pprint(results)
-                    status = 0
+                    org_status = 0
                 except ckanapi.NotFound:
-                    status = 404
+                    org_status = 404
                     results["id"] = ''
                 data = self.dg.organization_details(item['organization'])
                 # print data
@@ -102,10 +130,9 @@ class DataTransfer(object):
                     datagov_org = json.loads(data)
                 else:
                     self.logger.error("Can't get organization's details. id=%s, title=%s"%(item['organization'], item['organization_name']))
-                    # return False
                     continue
 
-                if status == 404:  # Не существует
+                if org_status == 404:  # Организации не существует
                     try:
                         results = self.ckan.action.organization_create(id=self.ckan_perfix + item['organization'],
                                                                        name=(self.ckan_perfix_short + datagov_org["url"].split('/')[-1]).lower(),
@@ -118,6 +145,9 @@ class DataTransfer(object):
                     except ckanapi.CKANAPIError, e:
                         print e
                         results["id"] = ''
+
+                    self.logger.info("Added organization id=%s, title=%s" % (item['organization'], item['organization_name']))
+
                 # elif status == 0: # Обновляем
                 #     try:
                 #         results = self.ckan.action.organization_patch(id=self.ckan_perfix+item['organization'],
@@ -130,27 +160,10 @@ class DataTransfer(object):
                 #     except ckanapi.CKANAPIError, e:
                 #         print e
                 if results["id"] != self.ckan_perfix + item['organization']:
-                    self.logger.error("Can't find or create organization id=%s, title=%s"%(item['organization'], item['organization_name']))
-                    # return False
+                    self.logger.error("Can't find or create organization id=%s, title=%s" % (item['organization'], item['organization_name']))
                     continue
 
-                self.logger.info("Added organization id=%s, title=%s" % (item['organization'], item['organization_name']))
-
-                data = self.dg.dataset_passport(item['identifier'])
-                if data:
-                    datagov_dataset = json.loads(data)
-                    MyPrettyPrinter().pprint(datagov_dataset)
-                else:
-                    self.logger.error("Can't get dataset's passport. id=%s" % item['identifier'])
-                    return False
-
-                if datagov_dataset["modified"]:
-                    server_m_time = datetime.datetime.strptime(datagov_dataset["modified"], '%d-%m-%Y')
-                elif datagov_dataset["created"]:
-                    server_m_time = datetime.datetime.strptime(datagov_dataset["created"], '%d-%m-%Y')
-                else:
-                    server_m_time = datetime.datetime.now()
-
+                # готовим файл
                 if datagov_dataset["format"]:
                     ds_format = datagov_dataset["format"]
                 elif datagov_dataset["source_url"]:
@@ -168,18 +181,18 @@ class DataTransfer(object):
                         try:
                             os.remove(local_fname)
                         except OSError:
-                            self.logger.error("Failed to remove file - %s" % local_fname)
+                            self.logger.error("Failed to remove file - %s, package id=%s" % (local_fname, ckan_package_id))
                 if not os.path.isfile(local_fname):
                     urllib.urlretrieve(remote_fname, local_fname)
 
                 if not os.path.isfile(local_fname):
-                    self.logger.error("Failed to prepare file %s. Skipping" % local_fname)
+                    self.logger.error("Failed to prepare file %s. Skipping, package id=%s" % (local_fname, ckan_package_id))
                     continue
 
-                tags = [{'name': x.replace('/', '_')} for x in datagov_dataset["subject"].split(', ')]
+                tags = [{'name': x.replace('/', '_')} for x in datagov_dataset["subject"].split(', ')] if datagov_dataset["subject"] else []
                 tags.append({'name': datagov_dataset["topic"]})
                 tags.append({'name': u"data.gov.ru"})
-                #MyPrettyPrinter().pprint(tags)
+                # MyPrettyPrinter().pprint(tags)
                 extras = [{"key": "last_modification_desc", "value": datagov_dataset["last_modification"]},
                           {"key": "organization-type", "value": datagov_dataset["organization-type"]},
                           {"key": "publisher_phone", "value": datagov_dataset["publisher_phone"]}]
@@ -199,6 +212,33 @@ class DataTransfer(object):
                               'format': ds_format,
                               'resource_type': 'file.upload',
                               'name': datagov_dataset["title"]}]
+
+            if status == 0 and ckan_package_m_time < server_m_time:  # Набор данных существует, обновляем
+                package_info["tags"] = tags
+                package_info["extras"] = extras
+                package_info["resources"] = resources
+                package_info["name"] = ckan_package_id
+                package_info["title"] = datagov_dataset["title"]
+                package_info["author"] = datagov_dataset["publisher"]
+                package_info["author_email"] = datagov_dataset["publisher_email"]
+                package_info["maintainer"] = MAINTAINER
+                package_info["maintainer_email"] = MAINTAINER_EMAIL
+                package_info["license_id"] = LICENSE_ID
+                package_info["notes"] = datagov_dataset["description"]
+                package_info["url"] = 'http://data.gov.ru/opendata/'+datagov_dataset["id"].lower()
+                package_info["resources"] = resources
+                package_info["tags"] = tags
+                package_info["extras"] = extras
+                package_info["groups"] = [{"name": self.ckan_group}]
+                package_info["owner_org"] = self.ckan_perfix + item['organization']
+                try:
+                    results = self.ckan.action.package_update(**package_info)
+                except ckanapi.ValidationError, e:
+                    self.logger.error("Failed to update package id=%s error type=Validation Error, reason=%s" % (datagov_dataset["id"], e.error_dict["name"][0]))
+                except ckanapi.CKANAPIError, e:
+                    print e
+                self.logger.info("Updated package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
+            elif status == 404:  # Добавляем набор данных
                 try:
                     results = self.ckan.action.package_create(name=ckan_package_id,
                                                               title=datagov_dataset["title"],
@@ -214,20 +254,18 @@ class DataTransfer(object):
                                                               extras=extras,
                                                               groups=[{"name": self.ckan_group}],
                                                               owner_org=self.ckan_perfix + item['organization'])
-                    # results = self.ckan.action.resource_create(package_id=self.ckan_perfix_short+datagov_dataset["id"],
-                    #                                            #url='',
-                    #                                            # description=u"Данные в формате "+ds_format,
-                    #                                            # format=ds_format,
-                    #                                            # name=datagov_dataset["title"],
-                    #                                            # resource_type="file.upload",
-                    #                                            upload=open(local_fname))
                     MyPrettyPrinter().pprint(results)
                 except ckanapi.ValidationError, e:
-                    self.logger.error("Failed to create package id=%s error type=Validation Error, reason=%s" % (datagov_dataset["id"], e.error_dict["name"][0]))
+                    error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
+                    self.logger.error("Failed to create package id=%s error type=Validation Error, reason=%s" % (ckan_package_id, error_str))
+                    continue
                 except ckanapi.CKANAPIError, e:
                     print e
+                    continue
                 self.logger.info("Added package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
-                #exit()
+            else:
+                self.logger.info("Package is up to date. id=%s " % ckan_package_id)
+            exit()
 
     def purge_group_organization(self, id):
         print self.ckan_perfix+id
@@ -242,11 +280,3 @@ if __name__ == '__main__':
     dt.get_dataset_list(topic='cartography')
     #dt.purge_group_organization('3444051965')
     dt.process_datasets()
-
-#    dg = DataGovApi(DATAGOV_API_KEY)
-#    data = dg.dataset_list()
-
-#    print dg.dataset('2983997167-gosudarstvennyj-kontrol-nadzor')
-#    print dg.dataset_version_list('2983997167-gosudarstvennyj-kontrol-nadzor')
-#    print dg.dataset_version('2983997167-gosudarstvennyj-kontrol-nadzor', '20140711T135451')
-#    print dg.organization('7107027505')
