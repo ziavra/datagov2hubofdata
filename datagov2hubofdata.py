@@ -141,7 +141,8 @@ class DataTransfer(object):
                                                                                {"key": "org-site-od-section", "value": datagov_org["org-site-od-section"]},
                                                                                {"key": "organization-type", "value": datagov_org["organization-type"]}])
                     except ckanapi.ValidationError, e:
-                        self.logger.error("Failed to create organization id=%s error type=Validation Error, reason=%s" % (datagov_org["id"], e.error_dict["name"][0]))
+                        error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
+                        self.logger.error("Failed to create organization id=%s error type=Validation Error, reason=%s" % (datagov_org["id"], error_str))
                     except ckanapi.CKANAPIError, e:
                         print e
                         results["id"] = ''
@@ -214,9 +215,6 @@ class DataTransfer(object):
                               'name': datagov_dataset["title"]}]
 
             if status == 0 and ckan_package_m_time < server_m_time:  # Набор данных существует, обновляем
-                package_info["tags"] = tags
-                package_info["extras"] = extras
-                package_info["resources"] = resources
                 package_info["name"] = ckan_package_id
                 package_info["title"] = datagov_dataset["title"]
                 package_info["author"] = datagov_dataset["publisher"]
@@ -234,7 +232,8 @@ class DataTransfer(object):
                 try:
                     results = self.ckan.action.package_update(**package_info)
                 except ckanapi.ValidationError, e:
-                    self.logger.error("Failed to update package id=%s error type=Validation Error, reason=%s" % (datagov_dataset["id"], e.error_dict["name"][0]))
+                    error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
+                    self.logger.error("Failed to update package id=%s error type=Validation Error, reason=%s" % (ckan_package_id, error_str))
                 except ckanapi.CKANAPIError, e:
                     print e
                 self.logger.info("Updated package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
@@ -265,7 +264,7 @@ class DataTransfer(object):
                 self.logger.info("Added package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
             else:
                 self.logger.info("Package is up to date. id=%s " % ckan_package_id)
-            exit()
+            exit()  # TODO убрать после тестов
 
     def purge_group_organization(self, id):
         print self.ckan_perfix+id
