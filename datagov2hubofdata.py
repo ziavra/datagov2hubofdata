@@ -8,18 +8,19 @@ import urllib
 from DataGovApi import DataGovApi
 import ckanapi
 from ckanclient import CkanClient
+import cPickle as pickle
 
 __author__ = 'ziavra'
 
 
-DATAGOV_API_KEY = '***REMOVED***'
+DATAGOV_API_KEY = '***REMOVED***'  # TODO убрать ключи перед релизом
 CKAN_API_KEY = '***REMOVED***'
 
 MAINTAINER = 'Vladimir Chaplits'
 MAINTAINER_EMAIL = 'vladimir.chaplits@gmail.com'
 LICENSE_ID = 'other-open'  # список доступных http://hubofdata.ru/api/3/action/license_list
 
-
+USE_CKAN_CACHE = True  # кэширует дату модификации для наборов данных на стороне CKAN
 
 class MyPrettyPrinter(pprint.PrettyPrinter):
     def format(self, object, context, maxlevels, level):
@@ -34,6 +35,8 @@ class DataTransfer(object):
     ckan_perfix_short = 'dgr_'  # только нижний регистр
     dataset_dir = 'datasets/'
     ckan_group = 'data-gov-ru'
+    ckan_cache_fname = 'ckan_cache.pkl'
+    ckan_cache_ttl = 7  # days
 
     def __init__(self, ckan_url=''):
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
@@ -57,6 +60,14 @@ class DataTransfer(object):
             self.logger.error("Failed to create an instance of CkanClient(Old API)")
             exit(1)
         self.datasets = []
+        self.ckan_cache = {}
+        if USE_CKAN_CACHE: # загружаем кэш
+            try:
+                self.ckan_cache = pickle.load(open(self.ckan_cache_fname, "rb"))
+                self.logger.info("Cache %s is loaded." % self.ckan_cache_fname)
+            except:
+                self.ckan_cache = {}
+                self.logger.info("Cache is initialized.")
 
     def get_dataset_list(self, topic='', organization=''):
         """
@@ -89,14 +100,9 @@ class DataTransfer(object):
             # MyPrettyPrinter().pprint(item)
             # if item['identifier'] == '3445126170-go':
             #     del self.datasets[i]
+
             ckan_package_m_time = datetime.datetime.now()
             ckan_package_id = (self.ckan_perfix_short+item['identifier']).lower()
-            try:
-                package_info = self.ckan.action.package_show(id=ckan_package_id)
-                ckan_package_m_time = datetime.datetime.strptime(package_info["metadata_modified"], '%Y-%m-%dT%H:%M:%S.%f')
-                status = 0
-            except ckanapi.NotFound:
-                status = 404
 
             data = self.dg.dataset_passport(item['identifier'])
             if data:
@@ -112,6 +118,20 @@ class DataTransfer(object):
                 server_m_time = datetime.datetime.strptime(datagov_dataset["created"], '%d-%m-%Y')
             else:
                 server_m_time = datetime.datetime.now()
+
+            # набор данных в кэше, кэш не устарел и дата модификации свежее сайта донора
+            if USE_CKAN_CACHE and ckan_package_id in self.ckan_cache and \
+               self.ckan_cache[ckan_package_id]["checked"] > datetime.datetime.now() - datetime.timedelta(days=self.ckan_cache_ttl) and \
+               self.ckan_cache[ckan_package_id]["modified"] >= server_m_time:
+                self.logger.info("Package is found in cache and up to date. id=%s" % ckan_package_id)
+                continue
+
+            try:
+                package_info = self.ckan.action.package_show(id=ckan_package_id)
+                ckan_package_m_time = datetime.datetime.strptime(package_info["metadata_modified"], '%Y-%m-%dT%H:%M:%S.%f')
+                status = 0
+            except ckanapi.NotFound:
+                status = 404
 
             # Если набора данных не существует или дата модификации старше, чем на сайте-доноре
             #print ckan_package_m_time, server_m_time
@@ -230,7 +250,7 @@ class DataTransfer(object):
                 package_info["groups"] = [{"name": self.ckan_group}]
                 package_info["owner_org"] = self.ckan_perfix + item['organization']
                 try:
-                    results = self.ckan.action.package_update(**package_info)
+                    results1 = self.ckan.action.package_update(**package_info)
                 except ckanapi.ValidationError, e:
                     error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
                     self.logger.error("Failed to update package id=%s error type=Validation Error, reason=%s" % (ckan_package_id, error_str))
@@ -239,7 +259,7 @@ class DataTransfer(object):
                 self.logger.info("Updated package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
             elif status == 404:  # Добавляем набор данных
                 try:
-                    results = self.ckan.action.package_create(name=ckan_package_id,
+                    results1 = self.ckan.action.package_create(name=ckan_package_id,
                                                               title=datagov_dataset["title"],
                                                               author=datagov_dataset["publisher"],
                                                               author_email=datagov_dataset["publisher_email"],
@@ -253,7 +273,7 @@ class DataTransfer(object):
                                                               extras=extras,
                                                               groups=[{"name": self.ckan_group}],
                                                               owner_org=self.ckan_perfix + item['organization'])
-                    MyPrettyPrinter().pprint(results)
+                    # MyPrettyPrinter().pprint(results1)
                 except ckanapi.ValidationError, e:
                     error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
                     self.logger.error("Failed to create package id=%s error type=Validation Error, reason=%s" % (ckan_package_id, error_str))
@@ -264,6 +284,21 @@ class DataTransfer(object):
                 self.logger.info("Added package id=%s title=%s" % (ckan_package_id, datagov_dataset["title"]))
             else:
                 self.logger.info("Package is up to date. id=%s " % ckan_package_id)
+
+            if USE_CKAN_CACHE:
+                if 'results1' in locals():
+                    ckan_package_m_time = datetime.datetime.strptime(results1["metadata_modified"], '%Y-%m-%dT%H:%M:%S.%f')
+                elif 'package_info' in locals():
+                    ckan_package_m_time = datetime.datetime.strptime(package_info["metadata_modified"], '%Y-%m-%dT%H:%M:%S.%f')
+                else:
+                    continue
+                self.ckan_cache[ckan_package_id] = {'modified': ckan_package_m_time, 'checked': datetime.datetime.now()}
+                with open(self.ckan_cache_fname, 'wb') as f:
+                    try:
+                        pickle.dump(self.ckan_cache, f, 2)
+                    except pickle.PicklingError:
+                        print self.logger.error("Failed to save ckan cache %s" % self.ckan_cache_fname)
+
             exit()  # TODO убрать после тестов
 
     def purge_group_organization(self, id):
