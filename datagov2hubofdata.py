@@ -297,9 +297,9 @@ class DataTransfer(object):
                     try:
                         pickle.dump(self.ckan_cache, f, 2)
                     except pickle.PicklingError:
-                        print self.logger.error("Failed to save ckan cache %s" % self.ckan_cache_fname)
+                        self.logger.error("Failed to save ckan cache %s" % self.ckan_cache_fname)
 
-            exit()  # TODO убрать после тестов
+            # exit()  # TODO убрать после тестов
 
     def purge_group_organization(self, id):
         print self.ckan_perfix+id

@@ -32,7 +32,8 @@ class DataGovApi(object):
         self.logger.setLevel(logging.DEBUG)
 
         if not access_token:
-            self.logger.error('Missed access_token')
+            self.logger.error('Missed API-key')
+            exit()
         self.logger.info('creating an instance of DataGovApi')
         self.access_token = access_token
         self.format = _format
