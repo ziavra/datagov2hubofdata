@@ -13,8 +13,8 @@ import cPickle as pickle
 __author__ = 'ziavra'
 
 
-DATAGOV_API_KEY = '***REMOVED***'  # TODO убрать ключи перед релизом
-CKAN_API_KEY = '***REMOVED***'
+DATAGOV_API_KEY = ''  # API-keys
+CKAN_API_KEY = ''
 
 MAINTAINER = 'Vladimir Chaplits'
 MAINTAINER_EMAIL = 'vladimir.chaplits@gmail.com'

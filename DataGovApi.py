@@ -405,7 +405,7 @@ class DataGovApi(object):
 
 
 if __name__ == "__main__":
-    dg = DataGovApi('***REMOVED***')
+    # dg = DataGovApi('')
     # print dg.main_page()
     # data=dg.dataset_list('', {"topic": "Government"})
     # json_data = json.loads(data)
@@ -424,6 +424,6 @@ if __name__ == "__main__":
     # print dg.topic("Government")
     # print dg.dataset_list_by_topic("Government")
     # dg.registry()
-    print dg.organization_details('3102003133')
+    # print dg.organization_details('3102003133')
     # print dg.dataset_passport('7710349494-mfclist')
     pass
