@@ -2,6 +2,7 @@
 import json
 import os
 import datetime
+import time
 import logging
 import pprint
 import urllib
@@ -47,7 +48,12 @@ class DataTransfer(object):
                 os.makedirs(self.dataset_dir)
             except OSError:
                 self.logger.error("Failed to open or create directory - %s" % self.dataset_dir)
-        self.dg = DataGovApi(DATAGOV_API_KEY)
+        try:
+            self.dg = DataGovApi(DATAGOV_API_KEY)
+        except Exception, e:
+            self.dg = None
+            self.logger.error("Failed to create an instance of DataGovApi, reason=%s" % e)
+            raise
         if not self.dg:
             self.logger.error("Failed to create an instance of DataGovApi")
             exit(1)
@@ -61,10 +67,10 @@ class DataTransfer(object):
             exit(1)
         self.datasets = []
         self.ckan_cache = {}
-        if USE_CKAN_CACHE: # загружаем кэш
+        if USE_CKAN_CACHE:  # загружаем кэш
             try:
                 self.ckan_cache = pickle.load(open(self.ckan_cache_fname, "rb"))
-                self.logger.info("Cache %s is loaded." % self.ckan_cache_fname)
+                self.logger.info("Loaded %d records from cache %s ." % (len(self.ckan_cache), self.ckan_cache_fname))
             except:
                 self.ckan_cache = {}
                 self.logger.info("Cache is initialized.")
@@ -88,8 +94,21 @@ class DataTransfer(object):
         if not data:
             self.logger.error("Can not get dataset list.")
             return False
-        self.datasets = json.loads(data)
+        try:
+            self.datasets = json.loads(data)
+        except:
+            self.logger.error("Can not get dataset list.")
+            return False
         self.logger.info("Found %d datasets from API" % len(self.datasets))
+
+    def __pseudo_ckan_create(self, **kwargs):
+        res = {"metadata_modified": datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')}
+        for key, value in kwargs.iteritems():
+            # print "%s = " % key,
+            # MyPrettyPrinter().pprint(value)
+            if key == 'id':
+                res.update({'id': value})
+        return res
 
     def process_datasets(self):
         for i in xrange(len(self.datasets)):
@@ -157,9 +176,9 @@ class DataTransfer(object):
                         results = self.ckan.action.organization_create(id=self.ckan_perfix + item['organization'],
                                                                        name=(self.ckan_perfix_short + datagov_org["url"].split('/')[-1]).lower(),
                                                                        title=datagov_org["title"],
-                                                                       extras=[{"key": "site-url", "value": datagov_org["site-url"]},
-                                                                               {"key": "org-site-od-section", "value": datagov_org["org-site-od-section"]},
-                                                                               {"key": "organization-type", "value": datagov_org["organization-type"]}])
+                                                                       extras=[{"key": "Ссылка на сайт организации", "value": datagov_org["site-url"]},
+                                                                               {"key": "Ссылка на раздел открытых данных", "value": datagov_org["org-site-od-section"]},
+                                                                               {"key": "Тип", "value": datagov_org["organization-type"]}])
                     except ckanapi.ValidationError, e:
                         error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
                         self.logger.error("Failed to create organization id=%s error type=Validation Error, reason=%s" % (datagov_org["id"], error_str))
@@ -196,6 +215,10 @@ class DataTransfer(object):
 
                 local_fname = (self.dataset_dir+datagov_dataset["id"]+file_ext).lower()
                 remote_fname = 'http://data.gov.ru/' + datagov_dataset["source_url"] if datagov_dataset["source_url"][:9] == 'opendata/' else datagov_dataset["source_url"]
+                if not remote_fname:
+                    self.logger.error("Missing data URL, package id=%s" % ckan_package_id)
+                    continue
+
                 if os.path.isfile(local_fname):
                     local_m_time = datetime.datetime.fromtimestamp(os.path.getmtime(local_fname))
                     if local_m_time < server_m_time:
@@ -204,7 +227,10 @@ class DataTransfer(object):
                         except OSError:
                             self.logger.error("Failed to remove file - %s, package id=%s" % (local_fname, ckan_package_id))
                 if not os.path.isfile(local_fname):
-                    urllib.urlretrieve(remote_fname, local_fname)
+                    try:
+                        urllib.urlretrieve(remote_fname, local_fname)
+                    except IOError, e:
+                        self.logger.error("Failed to download file %s, reason=%s" % (remote_fname, e))
 
                 if not os.path.isfile(local_fname):
                     self.logger.error("Failed to prepare file %s. Skipping, package id=%s" % (local_fname, ckan_package_id))
@@ -251,6 +277,7 @@ class DataTransfer(object):
                 package_info["owner_org"] = self.ckan_perfix + item['organization']
                 try:
                     results1 = self.ckan.action.package_update(**package_info)
+                    # MyPrettyPrinter().pprint(results)
                 except ckanapi.ValidationError, e:
                     error_str = ", ".join([k+'-'+v[0] for (k, v) in e.error_dict.iteritems() if k != '__type'])
                     self.logger.error("Failed to update package id=%s error type=Validation Error, reason=%s" % (ckan_package_id, error_str))
@@ -300,6 +327,7 @@ class DataTransfer(object):
                         self.logger.error("Failed to save ckan cache %s" % self.ckan_cache_fname)
 
             # exit()  # TODO убрать после тестов
+            time.sleep(5)
 
     def purge_group_organization(self, id):
         print self.ckan_perfix+id
@@ -310,7 +338,10 @@ class DataTransfer(object):
             pass
 
 if __name__ == '__main__':
-    dt = DataTransfer()
-    dt.get_dataset_list(topic='cartography')
+    try:
+        dt = DataTransfer()
+    except:
+        exit(1)
+    dt.get_dataset_list(topic='Weather')
     #dt.purge_group_organization('3444051965')
     dt.process_datasets()

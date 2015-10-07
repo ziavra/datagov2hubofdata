@@ -33,7 +33,7 @@ class DataGovApi(object):
 
         if not access_token:
             self.logger.error('Missed API-key')
-            exit()
+            raise ValueError('Missed API-key')
         self.logger.info('creating an instance of DataGovApi')
         self.access_token = access_token
         self.format = _format
@@ -314,7 +314,7 @@ class DataGovApi(object):
         with open('tmp.html', 'w+') as f:
             f.write(result.encode('utf-8'))
 
-        p = re.compile(u'\s+<tr class="odd views-row-first views-row-last">\n'
+        p = re.compile(#u'\s+<tr class="odd views-row-first views-row-last">\n'
                        u'\s+<td class="views-field views-field-counter" >\n'
                        u'\s+1          </td>\n'
                        u'\s+<td class="views-field views-field-title" >\n'
@@ -322,9 +322,9 @@ class DataGovApi(object):
                        u'\s+<td class="views-field views-field-field-organization-type views-align-center" >\n'
                        u'\s+(.*)</td>\n'
                        u'\s+<td class="views-field views-field-field-organization-inn views-align-center" >\n'
-                       u'\s+(\d+)          </td>\n'
+                       u'\s+([\d\-]+)          </td>\n'
                        u'\s+<td class="views-field views-field-field-site-url" >\n'
-                       u'\s+<a href="(.*)" rel="nofollow" target="_blank">Сайт организации</a>          </td>\n'
+                       u'\s+(<a href="(.*)" rel="nofollow" target="_blank">Сайт организации</a>          )?</td>\n'
                        u'\s+<td class="views-field views-field-field-org-site-od-section" >\n'
                        u'\s+(<a href="([^"]*).*?">((Ссылка на раздел открытых данных)|(Портала ОД организации))</a>          )?</td>\n'
                        u'\s+<td class="views-field views-field-created views-align-center" >\n'
@@ -344,10 +344,10 @@ class DataGovApi(object):
                            "title": matches.group(2),
                            "organization-type": matches.group(3),
                            "id": matches.group(4),
-                           "site-url": matches.group(5),
-                           "org-site-od-section": matches.group(7),
-                           "created": matches.group(11),
-                           "dataset-count": int(matches.group(12))}
+                           "site-url": matches.group(6),
+                           "org-site-od-section": matches.group(8),
+                           "created": matches.group(12),
+                           "dataset-count": int(matches.group(13))}
             fmt_result = json.dumps(json_result, indent=4)
         elif tmp_format == 'xml':
             # TODO добавить генерацию XML
@@ -371,8 +371,10 @@ class DataGovApi(object):
         if not self.__registry:
             self.registry()
 
-        data = self.__registry[ds_id]
-        if not data:
+        ds_id = ds_id.decode('string_escape')
+        if ds_id in self.__registry:
+            data = self.__registry[ds_id]
+        else:
             return False
 
         fmt_result = None
@@ -406,13 +408,13 @@ class DataGovApi(object):
 
 
 if __name__ == "__main__":
-    # dg = DataGovApi('')
+    dg = DataGovApi('')
     # print dg.main_page()
     # data=dg.dataset_list('', {"topic": "Government"})
     # json_data = json.loads(data)
     # for item in json_data:
     #     print item['identifier'], item['title'], item['organization'], item['organization_name'], item['topic']
-    # print dg.dataset('1380533740-01-DATA_MOS_RU_507')
+    # print dg.dataset("7710489036-Obekty roznichnoj torgovli i obshhestvennogo pitaniya, imeyushhie litsenziyu na roznichnuyu prodazhu alkogol\'noj produktsii s ukazaniem sroka ee dejstviya")
     # print dg.dataset_version_list('1380533740-01-DATA_MOS_RU_507')
     # print dg.dataset_version('1380533740-01-DATA_MOS_RU_507', '20140328T122916')
     # print dg.dataset_version_structure('1380533740-01-DATA_MOS_RU_507', '20140328T122916')
@@ -423,8 +425,8 @@ if __name__ == "__main__":
     # print dg.dataset_list_by_organization('7735017860')
     # print dg.topic_list()
     # print dg.topic("Government")
-    # print dg.dataset_list_by_topic("Government")
+    # print dg.dataset_list_by_topic("Trade")
     # dg.registry()
-    # print dg.organization_details('3102003133')
+    # print dg.organization_details('7735017860')
     # print dg.dataset_passport('7710349494-mfclist')
     pass
